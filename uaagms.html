@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UAAGMS – Academic Appeals</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+tailwind.config={theme:{extend:{colors:{ink:'#1f2a37',paper:'#f6f4ef',wine:{50:'#fbf1f3',100:'#f5dce1',600:'#8c2436',700:'#731d2c',800:'#5c1723'}}}}}
+</script>
+<style>
+body{font-family:Figtree,system-ui,sans-serif;color:#1f2a37;background:radial-gradient(900px 420px at 95% -8%,#f0dde1 0,transparent 65%),#f6f4ef;background-attachment:fixed}
+.serif{font-family:Fraunces,Georgia,serif}
+.card{background:#fff;border:1px solid #e7e3da;border-radius:1rem;box-shadow:0 1px 2px #1f2a3710,0 10px 28px -14px #1f2a3730}
+.inp{width:100%;border:1px solid #d9d5cb;border-radius:.65rem;padding:.62rem .8rem;background:#fff;font-size:.95rem;transition:border-color .15s,box-shadow .15s}
+.inp:hover{border-color:#b9b3a6}
+.inp:focus{outline:none;border-color:#8c2436;box-shadow:0 0 0 3px #8c243624}
+.btn{border-radius:.65rem;padding:.55rem 1.05rem;font-weight:600;font-size:.9rem;transition:transform .15s,box-shadow .15s,background .15s}
+.btn:hover:not(:disabled){transform:translateY(-1px)}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.btn-p{background:linear-gradient(180deg,#9b2a3e,#7a1f2f);color:#fff;box-shadow:0 6px 14px -6px #8c2436aa}
+.btn-p:hover:not(:disabled){box-shadow:0 10px 20px -8px #8c2436cc}
+.btn-o{border:1px solid #d9d5cb;background:#fff}.btn-o:hover:not(:disabled){background:#f3f0e9}
+.btn:focus-visible{outline:2px solid #1f2a37;outline-offset:2px}
+.logo{display:grid;place-items:center;width:2rem;height:2rem;border-radius:.6rem;background:#fff;color:#8c2436;font:700 1rem Fraunces,serif}
+.logo-d{background:linear-gradient(135deg,#9b2a3e,#5c1723);color:#fff}
+.avatar{width:2.2rem;height:2.2rem;border-radius:50%;display:grid;place-items:center;background:#f5dce1;color:#731d2c;font-weight:700;font-size:.8rem}
+.orb{position:absolute;border-radius:50%;pointer-events:none}
+.o1{width:460px;height:460px;right:-140px;top:-120px;background:radial-gradient(circle,#d1566d55,transparent 70%)}
+.o2{width:380px;height:380px;left:-120px;bottom:-140px;background:radial-gradient(circle,#ffffff22,transparent 70%)}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+.rise{animation:rise .45s ease both}.pop{animation:pop .22s ease both}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal" class="hidden fixed inset-0 z-50 bg-ink/50 backdrop-blur-sm overflow-y-auto p-4" role="dialog" aria-modal="true"></div>
+<div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] hidden px-4 py-2 rounded-lg bg-ink text-white text-sm shadow-lg"></div>
+
+<script>
+/* ============ CONFIG ============ */
+// Set MOCK:false and point API to your friend's backend when it is ready.
+const CFG = { API: 'http://localhost:5000/api', MOCK: true };
+
+/* ============ HELPERS ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = d => d ? new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '–';
+const STATUS = {
+  'Submitted':'bg-sky-100 text-sky-800',
+  'Under Review':'bg-amber-100 text-amber-800',
+  'Pending Clarification':'bg-violet-100 text-violet-800',
+  'Approved':'bg-emerald-100 text-emerald-800',
+  'Instructor Corrected':'bg-teal-100 text-teal-800',
+  'Grade Updated':'bg-green-200 text-green-900',
+  'Rejected':'bg-rose-100 text-rose-800'
+};
+// Which appeals need action from the signed-in role (head -> instructor -> registrar)
+const mine = a => ({head:['Submitted','Under Review','Pending Clarification'],instructor:['Approved'],registrar:['Instructor Corrected']}[S.user.role]||[]).includes(a.status);
+const CATS = ['Grade Dispute','Exam Result','Assessment Decision','Academic Procedure'];
+const badge = s => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${STATUS[s]||'bg-stone-100'}"><i class="w-1.5 h-1.5 rounded-full bg-current"></i>${esc(s)}</span>`;
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.remove('hidden');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.add('hidden'),2800)}
+function openModal(h){const m=$('#modal');m.innerHTML=`<div class="pop card max-w-xl mx-auto my-6 shadow-2xl">${h}</div>`;m.classList.remove('hidden')}
+function closeModal(){$('#modal').classList.add('hidden')}
+$('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+/* ============ STATE ============ */
+const S = { token:null, user:null, appeals:[], notifs:[], depts:[], filter:'All', tab:'login', bell:false };
+try { const s=JSON.parse(localStorage.getItem('uaagms')||'null'); if(s){S.token=s.token;S.user=s.user} } catch(e){}
+
+/* ============ API LAYER ============ */
+/* Endpoints expected from the backend (tell your friend):
+   POST   /auth/login            {email,password}                -> {token,user}
+   POST   /auth/register         {full_name,university_id,email,password,department_id} -> {token,user}
+   GET    /departments           -> [{department_id,dept_name,dept_code}]
+   GET    /appeals               -> own appeals (student) / department appeals (head) / all (admin)
+   POST   /appeals               multipart: category,course_code,description,files[]
+   GET    /appeals/:id           -> appeal + documents[] + logs[]
+   GET    /instructors           -> instructors of the head's department
+   PATCH  /appeals/:id/status    {status,remarks,instructor_id?,old_grade?,new_grade?}
+          head: Under Review | Pending Clarification | Approved (needs instructor_id + remarks) | Rejected (remarks >= 15 chars)
+          instructor: Instructor Corrected (old_grade,new_grade)   registrar: Grade Updated
+          every change -> insert audit_logs row + notify the student (and the next person in the chain)
+   GET    /notifications         -> [{notif_id,message,is_read,created_at}]
+   PATCH  /notifications/:id/read */
+async function api(path, {method='GET', body, form} = {}) {
+  if (CFG.MOCK) return mock(path, method, body, form);
+  const headers = {};
+  if (S.token) headers.Authorization = 'Bearer ' + S.token;
+  if (body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(CFG.API + path, { method, headers, body: form || (body ? JSON.stringify(body) : undefined) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.message || 'Request failed (' + r.status + ')');
+  return d;
+}
+
+/* ============ MOCK BACKEND (demo only) ============ */
+const DB = {
+  depts:[{department_id:1,dept_name:'Computer Engineering',dept_code:'CoEng'},{department_id:2,dept_name:'Computer Science',dept_code:'CS'},{department_id:3,dept_name:'Electrical Engineering',dept_code:'EE'}],
+  users:[
+    {user_id:1,full_name:'Abebe Tadesse',university_id:'BDU1201',email:'student@bdu.edu.et',password:'1234',role:'student',department_id:1},
+    {user_id:2,full_name:'Dr. Kebede Alemu',university_id:'STF001',email:'head@bdu.edu.et',password:'1234',role:'head',department_id:1},
+    {user_id:3,full_name:'Registrar Office',university_id:'REG001',email:'registrar@bdu.edu.et',password:'1234',role:'registrar',department_id:null},
+    {user_id:4,full_name:'Ato Mulugeta Bekele',university_id:'STF002',email:'instructor@bdu.edu.et',password:'1234',role:'instructor',department_id:1}],
+  appeals:[
+    {appeal_id:1,reference_number:'APP-2026-CoEng-0041',instructor_id:null,student_id:1,student_name:'Abebe Tadesse',department_id:1,category:'Grade Dispute',course_code:'CoEng3201',description:'My final exam total was added incorrectly; Q4 marks are missing from the sum.',status:'Under Review',deadline_date:'2026-11-30',created_at:'2026-11-05T09:00:00Z'},
+    {appeal_id:2,reference_number:'APP-2026-CoEng-0042',instructor_id:4,student_id:1,student_name:'Abebe Tadesse',department_id:1,category:'Exam Result',course_code:'CoEng3105',description:'Result not published after the deadline.',status:'Approved',deadline_date:'2026-11-20',created_at:'2026-10-28T09:00:00Z'}],
+  docs:[{doc_id:1,appeal_id:1,file_name:'exam-paper.pdf',file_path:'#'}],
+  logs:[{appeal_id:1,actor:'Abebe Tadesse',action_taken:'Submitted',remarks:'',timestamp:'2026-11-05T09:00:00Z'},{appeal_id:1,actor:'Dr. Kebede Alemu',action_taken:'Under Review',remarks:'Checking the original script.',timestamp:'2026-11-07T11:30:00Z'},{appeal_id:2,actor:'Dr. Kebede Alemu',action_taken:'Approved',remarks:'Marks were added up wrongly. Instructor to correct the grade.',timestamp:'2026-11-02T10:00:00Z'}],
+  notifs:[{notif_id:1,user_id:1,message:'APP-2026-CoEng-0041 is now Under Review.',is_read:false,created_at:'2026-11-07T11:30:00Z'}]
+};
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function mock(path, method, body, form) {
+  await wait(250);
+  const me = S.user, vis = a => me.role==='registrar' || (me.role==='instructor' && a.instructor_id===me.user_id) || (me.role==='head' && a.department_id===me.department_id) || a.student_id===me.user_id;
+  if (path==='/auth/login') {
+    const u = DB.users.find(u => u.email===body.email && u.password===body.password);
+    if (!u) throw new Error('Wrong email or password.');
+    return { token:'mock-token', user:u };
+  }
+  if (path==='/auth/register') {
+    if (DB.users.some(u => u.email===body.email)) throw new Error('That email is already registered.');
+    const u = { ...body, user_id:DB.users.length+1, role:'student', department_id:+body.department_id };
+    DB.users.push(u); return { token:'mock-token', user:u };
+  }
+  if (path==='/departments') return DB.depts;
+  if (path==='/instructors') return DB.users.filter(u => u.role==='instructor' && u.department_id===me.department_id);
+  if (path==='/notifications') return DB.notifs.filter(n => n.user_id===me.user_id);
+  if (path.startsWith('/notifications/')) { const n=DB.notifs.find(n=>n.notif_id==path.split('/')[2]); if(n)n.is_read=true; return {ok:true}; }
+  if (path==='/appeals' && method==='GET') return DB.appeals.filter(vis);
+  if (path==='/appeals' && method==='POST') {
+    const code = DB.depts.find(d => d.department_id===me.department_id).dept_code;
+    const a = { appeal_id:DB.appeals.length+1, reference_number:`APP-2026-${code}-${String(40+DB.appeals.length+1).padStart(4,'0')}`,
+      student_id:me.user_id, student_name:me.full_name, department_id:me.department_id, category:form.get('category'), course_code:form.get('course_code'),
+      description:form.get('description'), status:'Submitted', deadline_date:new Date(Date.now()+14*864e5).toISOString(), created_at:new Date().toISOString() };
+    DB.appeals.unshift(a);
+    form.getAll('files').forEach(f => f.name && DB.docs.push({doc_id:DB.docs.length+1,appeal_id:a.appeal_id,file_name:f.name,file_path:'#'}));
+    DB.logs.push({appeal_id:a.appeal_id,actor:me.full_name,action_taken:'Submitted',remarks:'',timestamp:a.created_at});
+    return a;
+  }
+  const m = path.match(/^\/appeals\/(\d+)(\/status)?$/);
+  if (m) {
+    const a = DB.appeals.find(a => a.appeal_id==m[1]);
+    if (m[2]) {
+      const now = new Date().toISOString(), push = (uid, msg) => DB.notifs.push({notif_id:DB.notifs.length+1,user_id:uid,message:msg,is_read:false,created_at:now});
+      let remarks = body.remarks || '';
+      if (body.status==='Rejected' && remarks.length < 15) throw new Error('A clear rejection reason is required.');
+      if (body.status==='Approved') { if (!body.instructor_id) throw new Error('Choose the course instructor.'); a.instructor_id = +body.instructor_id; push(a.instructor_id, `${a.reference_number}: grade correction requested.`); }
+      if (body.status==='Instructor Corrected') { remarks = `Grade ${body.old_grade} → ${body.new_grade}. ${remarks}`; DB.users.filter(u => u.role==='registrar').forEach(u => push(u.user_id, `${a.reference_number}: ready for the official grade update.`)); }
+      a.status = body.status;
+      DB.logs.push({appeal_id:a.appeal_id,actor:me.full_name,action_taken:body.status,remarks,timestamp:now});
+      push(a.student_id, body.status==='Grade Updated' ? `${a.reference_number}: your grade has been corrected.` : body.status==='Rejected' ? `${a.reference_number} was rejected. Reason: ${remarks}` : `${a.reference_number} is now ${body.status}.`);
+      return a;
+    }
+    return { ...a, documents:DB.docs.filter(d => d.appeal_id===a.appeal_id), logs:DB.logs.filter(l => l.appeal_id===a.appeal_id) };
+  }
+  throw new Error('Unknown route ' + path);
+}
+
+/* ============ AUTH VIEW ============ */
+function authView() {
+  const reg = S.tab==='register';
+  $('#app').innerHTML = `
+  <div class="min-h-screen grid lg:grid-cols-2">
+    <section class="relative overflow-hidden text-white p-8 lg:p-14 flex flex-col justify-between bg-gradient-to-br from-wine-800 via-wine-700 to-[#3b0f18]">
+      <div class="orb o1"></div><div class="orb o2"></div>
+      <div class="relative flex items-center gap-2.5 font-semibold"><span class="logo">U</span>Bahir Dar University</div>
+      <div class="relative my-12 max-w-md rise">
+        <h1 class="serif text-4xl lg:text-5xl leading-[1.1]">Question a result. Keep the record.</h1>
+        <p class="mt-5 text-wine-100 leading-relaxed">File an academic appeal, attach your evidence, and follow every decision with a reference number that stays with your case.</p>
+        <ol class="mt-9 space-y-4 text-sm">
+          ${[['File your appeal','Choose the type, explain, attach proof.'],['Department and instructor act','The head decides, the instructor corrects the grade.'],['Registrar confirms','The official grade is updated and you are notified.']].map(([t,d],i)=>`<li class="flex gap-3 items-start"><span class="shrink-0 w-7 h-7 rounded-full bg-white/15 border border-white/25 grid place-items-center text-xs font-bold">${i+1}</span><span><b class="block">${t}</b><span class="text-wine-100">${d}</span></span></li>`).join('')}
+        </ol>
+      </div>
+      <p class="relative text-sm text-wine-100/80">Grades · exam results · assessment decisions · procedures</p>
+    </section>
+    <section class="p-6 lg:p-14 flex items-center">
+      <form id="authForm" class="card rise w-full max-w-sm mx-auto space-y-4 p-7">
+        <div class="flex gap-1 bg-stone-200 p-1 rounded-lg" role="tablist">
+          <button type="button" data-tab="login" class="flex-1 btn ${!reg?'bg-white shadow-sm':''}">Sign in</button>
+          <button type="button" data-tab="register" class="flex-1 btn ${reg?'bg-white shadow-sm':''}">Create account</button>
+        </div>
+        ${reg?`
+        <label class="block text-sm font-medium">Full name<input name="full_name" required class="inp mt-1"></label>
+        <label class="block text-sm font-medium">University ID<input name="university_id" required placeholder="e.g. BDU1201" class="inp mt-1"></label>
+        <label class="block text-sm font-medium">Department
+          <select name="department_id" required class="inp mt-1"><option value="">Choose department</option>${S.depts.map(d=>`<option value="${d.department_id}">${esc(d.dept_name)}</option>`).join('')}</select></label>`:''}
+        <label class="block text-sm font-medium">Email<input name="email" type="email" required class="inp mt-1"></label>
+        <label class="block text-sm font-medium">Password<input name="password" type="password" required minlength="4" class="inp mt-1"></label>
+        <p id="authErr" class="text-sm text-rose-700 hidden"></p>
+        <button class="btn btn-p w-full py-2.5">${reg?'Create account':'Sign in'}</button>
+        ${CFG.MOCK&&!reg?'<p class="text-xs text-stone-500 leading-relaxed">Demo accounts (password 1234): student@, head@, instructor@, registrar@ (all @bdu.edu.et)</p>':''}
+      </form>
+    </section>
+  </div>`;
+  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab=b.dataset.tab; authView(); });
+  $('#authForm').onsubmit = async e => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target)), btn = e.target.querySelector('.btn-p');
+    btn.disabled = true; btn.textContent = 'Please wait…';
+    try {
+      const r = await api(reg ? '/auth/register' : '/auth/login', { method:'POST', body });
+      S.token = r.token; S.user = r.user;
+      try { localStorage.setItem('uaagms', JSON.stringify({token:S.token,user:S.user})) } catch(e){}
+      await boot();
+    } catch (err) {
+      const p = $('#authErr'); p.textContent = err.message; p.classList.remove('hidden');
+      btn.disabled = false; btn.textContent = reg ? 'Create account' : 'Sign in';
+    }
+  };
+}
+
+/* ============ DASHBOARD SHELL ============ */
+function shell(inner) {
+  const u = S.user, unread = S.notifs.filter(n => !n.is_read).length;
+  const roleName = { student:'Student', head:'Department head', instructor:'Course instructor', registrar:'Registrar' }[u.role];
+  $('#app').innerHTML = `
+  <header class="bg-white/85 backdrop-blur border-b border-stone-200 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-2"><span class="logo logo-d">U</span><span class="serif text-lg text-wine-800 font-bold">UAAGMS</span></div>
+      <div class="flex items-center gap-3 relative">
+        <button id="bell" class="relative p-2 rounded-lg hover:bg-stone-100" aria-label="Notifications">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/></svg>
+          ${unread?`<span class="absolute top-0.5 right-0.5 bg-wine-600 text-white text-[10px] rounded-full min-w-4 h-4 px-1 grid place-items-center">${unread}</span>`:''}
+        </button>
+        <div class="flex items-center gap-2.5"><span class="avatar" aria-hidden="true">${esc(u.full_name.replace(/^(Dr\.|Ato|Ms\.|Mr\.)\s+/,'').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase())}</span><div class="leading-tight hidden sm:block"><div class="text-sm font-semibold">${esc(u.full_name)}</div><div class="text-xs text-stone-500">${roleName}</div></div></div>
+        <button id="logout" class="btn btn-o">Sign out</button>
+        <div id="bellPanel" class="${S.bell?'':'hidden'} absolute right-0 top-12 w-80 max-w-[85vw] bg-white border border-stone-200 rounded-xl shadow-xl max-h-96 overflow-y-auto">
+          ${S.notifs.length ? S.notifs.map(n=>`<button data-n="${n.notif_id}" class="block w-full text-left px-4 py-3 border-b border-stone-100 hover:bg-stone-50 ${n.is_read?'text-stone-500':'font-medium'}"><div class="text-sm">${esc(n.message)}</div><div class="text-xs text-stone-400 mt-0.5">${fmt(n.created_at)}</div></button>`).join('') : '<p class="p-4 text-sm text-stone-500">No notifications yet.</p>'}
+        </div>
+      </div>
+    </div>
+  </header>
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    <div class="rise relative overflow-hidden rounded-2xl bg-gradient-to-r from-wine-800 to-wine-600 text-white p-5 sm:p-6 mb-6 flex items-center justify-between gap-4">
+      <div class="orb o2"></div><div class="relative"><p class="text-wine-100 text-sm">Welcome back</p><h1 class="serif text-2xl">${esc(u.full_name)}</h1></div>
+      <span class="relative text-xs font-semibold bg-white/15 border border-white/20 rounded-full px-3 py-1 whitespace-nowrap">${roleName}</span></div>
+    <div class="rise">${inner}</div></main>`;
+  $('#logout').onclick = () => { S.token=S.user=null; S.bell=false; try{localStorage.removeItem('uaagms')}catch(e){} authView(); };
+  $('#bell').onclick = () => { S.bell=!S.bell; $('#bellPanel').classList.toggle('hidden'); };
+  document.querySelectorAll('[data-n]').forEach(b => b.onclick = async () => {
+    await api('/notifications/' + b.dataset.n + '/read', { method:'PATCH' }).catch(()=>{});
+    const n = S.notifs.find(n => n.notif_id==b.dataset.n); if (n) n.is_read = true; render();
+  });
+}
+
+function stats() {
+  const c = s => S.appeals.filter(a => s.includes(a.status)).length;
+  const cards = [['All appeals',S.appeals.length,'border-t-stone-400'],['Waiting',c(['Submitted','Under Review']),'border-t-sky-500'],['Need clarification',c(['Pending Clarification']),'border-t-violet-500'],['Approved',c(['Approved','Instructor Corrected','Grade Updated']),'border-t-emerald-500'],['Rejected',c(['Rejected']),'border-t-rose-500']];
+  return `<div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">${cards.map(([l,v,c])=>`<div class="card border-t-4 ${c} p-4"><div class="serif text-3xl">${v}</div><div class="text-sm text-stone-500 mt-1">${l}</div></div>`).join('')}</div>`;
+}
+
+function table(rows, showStudent) {
+  if (!rows.length) return `<div class="card border-dashed p-12 text-center text-stone-500"><svg class="mx-auto mb-3 text-stone-300" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6"/></svg>${S.user.role==='student'?'You have not filed an appeal yet. Use “New appeal” to start.':'No appeals match this filter.'}</div>`;
+  return `<div class="card overflow-x-auto"><table class="w-full text-sm min-w-[720px]">
+    <thead class="text-left text-xs uppercase tracking-wide text-stone-500 bg-stone-50 border-b border-stone-200"><tr>
+      <th class="p-3 font-medium">Reference</th>${showStudent?'<th class="p-3 font-medium">Student</th>':''}<th class="p-3 font-medium">Type</th><th class="p-3 font-medium">Course</th><th class="p-3 font-medium">Status</th><th class="p-3 font-medium">Deadline</th><th class="p-3"></th></tr></thead>
+    <tbody>${rows.map(a=>`<tr class="border-b border-stone-100 last:border-0 hover:bg-wine-50/70 transition-colors">
+      <td class="p-3 font-semibold text-wine-700 whitespace-nowrap">${esc(a.reference_number)}</td>${showStudent?`<td class="p-3">${esc(a.student_name)}</td>`:''}
+      <td class="p-3">${esc(a.category)}</td><td class="p-3">${esc(a.course_code)}</td><td class="p-3">${badge(a.status)}</td><td class="p-3">${fmt(a.deadline_date)}</td>
+      <td class="p-3 text-right"><button data-open="${a.appeal_id}" class="btn btn-o">${mine(a)?'Review':'View'}</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ============ STUDENT ============ */
+function studentView() {
+  shell(`
+  <div class="flex items-center justify-between mb-5 gap-3">
+    <div><h2 class="serif text-2xl">My appeals</h2><p class="text-sm text-stone-500">Follow each case from submission to decision.</p></div>
+    <button id="newAppeal" class="btn btn-p">New appeal</button>
+  </div>${stats()}${table(S.appeals,false)}`);
+  $('#newAppeal').onclick = appealForm;
+}
+
+function appealForm() {
+  const dept = S.depts.find(d => d.department_id===S.user.department_id);
+  openModal(`<form id="af" class="p-6 space-y-4">
+    <div class="flex justify-between items-start"><h3 class="serif text-xl">New appeal</h3><button type="button" class="text-2xl leading-none" onclick="closeModal()" aria-label="Close">×</button></div>
+    <p class="text-sm text-stone-500">Goes to: <b>${esc(dept?dept.dept_name:'your department')}</b>. A reference number is created when you submit.</p>
+    <label class="block text-sm font-medium">What is the appeal about?
+      <select name="category" required class="inp mt-1">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></label>
+    <label class="block text-sm font-medium">Course code<input name="course_code" required placeholder="e.g. CoEng3201" class="inp mt-1"></label>
+    <label class="block text-sm font-medium">Explain what happened<textarea name="description" required minlength="20" rows="4" class="inp mt-1" placeholder="Describe the decision you are questioning and why."></textarea></label>
+    <div>
+      <label class="block text-sm font-medium">Supporting files <span class="text-stone-400 font-normal">(PDF, JPG, PNG · up to 5 MB each)</span>
+        <input id="files" name="files" type="file" multiple accept=".pdf,.jpg,.jpeg,.png" class="inp mt-1"></label>
+      <ul id="fileList" class="mt-2 text-sm text-stone-600 space-y-1"></ul>
+    </div>
+    <p id="afErr" class="text-sm text-rose-700 hidden"></p>
+    <div class="flex justify-end gap-2"><button type="button" class="btn btn-o" onclick="closeModal()">Cancel</button><button class="btn btn-p">Submit appeal</button></div>
+  </form>`);
+  const ok = f => /\.(pdf|jpe?g|png)$/i.test(f.name) && f.size <= 5*1024*1024;
+  $('#files').onchange = e => { $('#fileList').innerHTML = [...e.target.files].map(f => `<li class="${ok(f)?'':'text-rose-700'}">${esc(f.name)} · ${(f.size/1024).toFixed(0)} KB${ok(f)?'':' – not allowed (type or size)'}</li>`).join(''); };
+  $('#af').onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target), err = $('#afErr');
+    if (fd.getAll('files').some(f => f.name && !ok(f))) { err.textContent='Remove files that are not PDF, JPG or PNG under 5 MB.'; err.classList.remove('hidden'); return; }
+    const b = e.target.querySelector('.btn-p'); b.disabled = true; b.textContent = 'Submitting…';
+    try { const a = await api('/appeals', { method:'POST', form:fd }); closeModal(); toast('Submitted. Reference: ' + a.reference_number); await load(); }
+    catch (x) { err.textContent = x.message; err.classList.remove('hidden'); b.disabled=false; b.textContent='Submit appeal'; }
+  };
+}
+
+/* ============ HEAD / ADMIN ============ */
+function staffView() {
+  const list = S.filter==='All' ? S.appeals : S.appeals.filter(a => a.status===S.filter);
+  const r = S.user.role, dept = S.depts.find(d => d.department_id===S.user.department_id);
+  shell(`
+  <div class="mb-5"><h2 class="serif text-2xl">${esc({head:'Appeals for '+(dept?dept.dept_name:'your department'),instructor:'Grade corrections assigned to you',registrar:'All appeals'}[r])}</h2>
+    <p class="text-sm text-stone-500">${{head:'Open an appeal to read the evidence and record your decision.',instructor:'Correct the grade the department approved, then send it to the registrar.',registrar:'Apply corrected grades to the official record once the instructor confirms.'}[r]}</p></div>
+  ${stats()}
+  <div class="flex gap-2 overflow-x-auto pb-3" role="tablist">${['All',...Object.keys(STATUS)].map(s=>`<button data-f="${s}" class="btn whitespace-nowrap ${S.filter===s?'btn-p':'btn-o'}">${s}</button>`).join('')}</div>
+  ${table(list,true)}`);
+  document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filter=b.dataset.f; render(); });
+}
+
+async function openAppeal(id) {
+  openModal('<p class="p-8 text-center text-stone-500">Loading…</p>');
+  try {
+    const a = await api('/appeals/' + id), canAct = mine(a), role = S.user.role, inst = role==='head' && canAct ? await api('/instructors').catch(() => []) : [], last = (a.logs||[]).slice(-1)[0];
+    const err = '<p id="decErr" class="text-sm text-rose-700 hidden"></p>', rem = l => `<label class="block text-sm font-medium">${l}<textarea id="rem" rows="3" class="inp mt-1"></textarea></label>`;
+    const panel = !canAct ? '' : '<div class="border-t border-stone-200 pt-4 space-y-3">' + (role==='head'
+      ? rem('Remarks <span class="text-stone-400 font-normal">(the student sees this · a clear reason is required to reject)</span>') + `<label class="block text-sm font-medium">Course instructor <span class="text-stone-400 font-normal">(needed to approve)</span><select id="inst" class="inp mt-1"><option value="">Choose instructor</option>${inst.map(i=>`<option value="${i.user_id}">${esc(i.full_name)}</option>`).join('')}</select></label>${err}<div class="flex flex-wrap gap-2">${a.status==='Submitted'?'<button data-s="Under Review" class="btn btn-o">Start review</button>':''}<button data-s="Pending Clarification" class="btn btn-o">Ask for clarification</button><button data-s="Rejected" class="btn bg-rose-700 text-white hover:bg-rose-800">Reject</button><button data-s="Approved" class="btn bg-emerald-700 text-white hover:bg-emerald-800">Approve and send to instructor</button></div>`
+      : role==='instructor'
+      ? '<p class="text-sm text-stone-600">The department approved this appeal. Check the script, correct the grade and send it to the registrar.</p><div class="grid grid-cols-2 gap-3"><label class="block text-sm font-medium">Current grade<input id="og" class="inp mt-1" placeholder="B"></label><label class="block text-sm font-medium">Corrected grade<input id="ng" class="inp mt-1" placeholder="A-"></label></div>' + rem('Note (optional)') + err + '<button data-s="Instructor Corrected" class="btn btn-p">Confirm correction</button>'
+      : '<p class="text-sm text-stone-600">The department and the instructor have confirmed the correction. Updating records the official change and tells the student.</p>' + rem('Note (optional)') + err + '<button data-s="Grade Updated" class="btn btn-p">Update official grade</button>') + '</div>';
+    openModal(`<div class="p-6 space-y-4">
+      <div class="flex justify-between items-start gap-3"><div><div class="text-xs text-stone-500">${esc(a.category)} · ${esc(a.course_code)}</div><h3 class="serif text-xl">${esc(a.reference_number)}</h3></div>
+        <div class="flex items-center gap-2">${badge(a.status)}<button class="text-2xl leading-none" onclick="closeModal()" aria-label="Close">×</button></div></div>
+      ${S.user.role!=='student'?`<p class="text-sm"><b>Student:</b> ${esc(a.student_name)}</p>`:''}
+      <p class="text-sm leading-relaxed bg-stone-50 rounded-lg p-3">${esc(a.description)}</p>
+      ${a.status==='Rejected'?`<div class="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm"><b>Rejected. The grade stays unchanged.</b> Reason: ${esc(last?last.remarks:'')}</div>`:''}
+      ${a.status==='Grade Updated'?`<div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm"><b>Grade corrected in the official record.</b> ${esc(last?last.remarks:'')}</div>`:''}
+      <div><h4 class="text-sm font-semibold mb-1">Documents</h4>${(a.documents||[]).length?`<ul class="text-sm space-y-1">${a.documents.map(d=>`<li><a class="text-wine-700 underline" target="_blank" rel="noopener" href="${esc(d.file_path)}">${esc(d.file_name)}</a></li>`).join('')}</ul>`:'<p class="text-sm text-stone-500">No files attached.</p>'}</div>
+      <div><h4 class="text-sm font-semibold mb-2">History</h4><ol class="border-l-2 border-stone-200 ml-1 space-y-3">${(a.logs||[]).map(l=>`<li class="pl-4 relative"><span class="absolute -left-[7px] top-1 w-3 h-3 rounded-full bg-wine-600 ring-4 ring-white"></span><div class="text-sm"><b>${esc(l.actor)}</b> · ${badge(l.action_taken)}</div>${l.remarks?`<div class="text-sm text-stone-600">“${esc(l.remarks)}”</div>`:''}<div class="text-xs text-stone-400">${fmt(l.timestamp)}</div></li>`).join('')}</ol></div>
+      ${panel}
+    </div>`);
+    document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
+      const remarks = $('#rem').value.trim(), s = b.dataset.s, body = { status:s, remarks }, bad = m => { const e=$('#decErr'); e.textContent=m; e.classList.remove('hidden'); };
+      if (s==='Rejected' && remarks.length < 15) return bad('Write the reason for rejecting (at least 15 characters). The student will see it and the grade stays unchanged.');
+      if (s==='Pending Clarification' && !remarks) return bad('Say what the student needs to clarify.');
+      if (s==='Approved') { body.instructor_id = $('#inst').value; if (!remarks) return bad('Add the order for the instructor, e.g. which marks to correct.'); if (!body.instructor_id) return bad('Choose the course instructor.'); }
+      if (s==='Instructor Corrected') { body.old_grade = $('#og').value.trim(); body.new_grade = $('#ng').value.trim(); if (!body.old_grade || !body.new_grade) return bad('Enter the current and the corrected grade.'); }
+      document.querySelectorAll('[data-s]').forEach(x => x.disabled = true);
+      try { await api('/appeals/' + id + '/status', { method:'PATCH', body }); closeModal(); toast('Status changed to ' + s); await load(); }
+      catch (x) { toast(x.message); document.querySelectorAll('[data-s]').forEach(x => x.disabled = false); }
+    });
+  } catch (x) { closeModal(); toast(x.message); }
+}
+
+/* ============ ROUTER ============ */
+function render() {
+  S.user.role==='student' ? studentView() : staffView();
+  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openAppeal(b.dataset.open));
+}
+async function load() {
+  try { [S.appeals, S.notifs] = await Promise.all([api('/appeals'), api('/notifications')]); render(); }
+  catch (e) { toast(e.message); }
+}
+async function boot() {
+  if (S.user) { S.depts = S.depts.length ? S.depts : await api('/departments').catch(()=>[]); await load(); }
+  else { S.depts = await api('/departments').catch(() => DB.depts); authView(); }
+}
+boot();
+</script>
+</body>
+</html>
